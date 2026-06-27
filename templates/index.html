@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeForge AI · Coding Assistant</title>
+
+  <!-- Type: Inter for UI, JetBrains Mono for code. Degrades to system fonts offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+
+  <!-- Markdown + highlighting (CDN). App still works offline as plain text. -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/atom-one-dark.min.css" />
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js"></script>
+</head>
+<body>
+  <!-- Icon definitions (defined once, referenced via <use>) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <g id="i-generate"><path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z"/><path d="M19 14l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z"/></g>
+      <g id="i-explain"><path d="M9.5 18h5"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.8 10.6c.6.6.8 1.2.8 2.4h6c0-1.2.2-1.8.8-2.4A6 6 0 0 0 12 3z"/></g>
+      <g id="i-debug"><path d="M8 3l1.5 2M16 3l-1.5 2"/><rect x="7" y="6" width="10" height="12" rx="5"/><path d="M12 7v11"/><path d="M7 10H3M21 10h-4M7 14H3M21 14h-4M7 18l-2 2M17 18l2 2M7 8L5 6M17 8l2-2"/></g>
+      <g id="i-optimize"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></g>
+      <g id="i-document"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h5"/></g>
+      <g id="i-review"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><path d="M8.5 11l2 2 3.5-3.5"/></g>
+      <g id="i-learn"><path d="M12 6C10.5 5 8 4.5 6 4.5S3 5 3 5v13s1-.5 3-.5 4.5.5 6 1.5c1.5-1 4-1.5 6-1.5s3 .5 3 .5V5s-1-.5-3-.5-4.5.5-6 1.5z"/><path d="M12 6v13"/></g>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- ===== Sidebar ===== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8l4 4-4 4"/><path d="M13 16h5"/></svg>
+        </span>
+        <div class="brand-text">
+          <h1>CodeForge<span>AI</span></h1>
+          <p>Local coding assistant</p>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <span class="nav-heading">Modules</span>
+        <nav class="modes" id="modeNav">
+          {% set svgmap = {'generate':'i-generate','explain':'i-explain','debug':'i-debug','optimize':'i-optimize','document':'i-document','review':'i-review','learn':'i-learn'} %}
+          {% for key, m in modes.items() %}
+          <button class="mode-btn" data-mode="{{ key }}"
+                  data-input-label="{{ m.input_label }}"
+                  data-placeholder="{{ m.placeholder }}"
+                  title="{{ m.description }}">
+            <span class="mode-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#{{ svgmap[key] }}"/></svg>
+            </span>
+            <span class="mode-label">{{ m.label }}</span>
+            <span class="mode-chevron">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+            </span>
+          </button>
+          {% endfor %}
+        </nav>
+      </div>
+
+      <div class="nav-section history-block">
+        <div class="nav-heading-row">
+          <span class="nav-heading">Recent</span>
+          <button id="clearHistory" class="link-btn" title="Clear all history">Clear all</button>
+        </div>
+        <ul id="historyList" class="history-list"></ul>
+      </div>
+
+      <div class="status" id="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting…</span>
+      </div>
+    </aside>
+
+    <!-- ===== Main ===== -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h2 id="modeTitle">Generate Code</h2>
+          <p id="modeDesc">Turn a plain-English request into working code.</p>
+        </div>
+        <div class="controls">
+          <div class="field">
+            <span class="field-label">Language</span>
+            <div class="select-wrap">
+              <select id="languageSelect">
+                <option value="auto">Auto-detect</option>
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+                <option value="typescript">TypeScript</option>
+                <option value="java">Java</option>
+                <option value="c">C</option>
+                <option value="c++">C++</option>
+                <option value="c#">C#</option>
+                <option value="go">Go</option>
+                <option value="rust">Rust</option>
+                <option value="php">PHP</option>
+                <option value="ruby">Ruby</option>
+                <option value="sql">SQL</option>
+                <option value="html">HTML</option>
+                <option value="css">CSS</option>
+                <option value="bash">Bash</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label">Model</span>
+            <div class="select-wrap">
+              <select id="modelSelect"><option value="">loading…</option></select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="output-wrap">
+        <div class="output-inner">
+          <!-- Hero (per-module greeting) is rendered here by app.js -->
+          <div id="output" class="output"></div>
+        </div>
+      </section>
+
+      <section class="composer">
+        <div class="composer-card">
+          <label id="inputLabel" for="userInput" class="composer-label">Describe what you want to build</label>
+          <textarea id="userInput" rows="3"
+                    placeholder="e.g. Write a Python function to find the factorial of a number"></textarea>
+          <div class="composer-actions">
+            <span class="hint"><kbd>Ctrl</kbd><kbd>↵</kbd> to run</span>
+            <div class="action-group">
+              <button id="copyBtn" class="ghost-btn" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+                Copy
+              </button>
+              <button id="downloadBtn" class="ghost-btn" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M5 21h14"/></svg>
+                Download
+              </button>
+              <button id="runBtn" class="primary-btn">
+                <span class="btn-text">Run</span>
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4l14 8-14 8z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+# CodeForge AI — Python dependencies
+# (Only Flask is required; everything else uses the standard library.)
+Flask>=3.0
